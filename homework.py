@@ -9,8 +9,7 @@ from dotenv import load_dotenv
 import requests
 from telebot import TeleBot
 
-from exceptions import (UnexpectedResponseError,
-                        IncorrectResponseError,
+from exceptions import (IncorrectResponseError,
                         NotTokenError,
                         SendingMessageError)
 
