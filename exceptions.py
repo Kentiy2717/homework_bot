@@ -17,3 +17,16 @@ class IncorrectResponseError(MyExceptionError):
     """Cбой при запросе к эндпоинту. Некорректный ответ."""
 
     pass
+
+
+class NotTokenError(MyExceptionError):
+    """Cбой при запросе к эндпоинту. Некорректный ответ."""
+
+    pass
+
+
+class SendingMessageError(MyExceptionError):
+    """Cбой при запросе к эндпоинту. Некорректный ответ."""
+
+    pass
+
