@@ -102,10 +102,10 @@ def get_api_answer(timestamp):
             params=params['params']
         )
     except Exception:
-        message = (f'Ошибка подключения.'
-                   f'ENDPOINT - {params['ENDPOINT']}.'
-                   f'headers - {params['headers']}.'
-                   f'payload - {params['params']}.')
+        message = ('Ошибка подключения. '
+                   'ENDPOINT - {ENDPOINT}.'
+                   'headers - {headers}.'
+                   'payload - {params}.').format(**params)
         raise ConnectionError(message)
     if homework_statuses.status_code != HTTPStatus.OK:
         message = (f'Эндпоинт недоступен.'
