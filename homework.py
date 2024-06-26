@@ -9,9 +9,8 @@ from dotenv import load_dotenv
 import requests
 from telebot import TeleBot
 
-from exceptions import (IncorrectResponseError,
-                        NotTokenError,
-                        SendingMessageError)
+from exceptions import (IncorrectResponseCodeError,
+                        NotTokenError)
 
 load_dotenv()
 
@@ -47,7 +46,8 @@ logger.addHandler(stream_handler)
 file_handler = RotatingFileHandler(
     'my_logger.log',
     maxBytes=50000000,
-    backupCount=5
+    backupCount=5,
+    encoding='utf-8'
 )
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
@@ -61,23 +61,22 @@ def check_tokens():
         ('TELEGRAM_TOKEN', TELEGRAM_TOKEN),
         ('TELEGRAM_CHAT_ID', TELEGRAM_CHAT_ID)
     )
+    not_all_tokens = []
     for name, value in ENV_VARIABLES:
         if not value:
-            message = f'Отсутствует переменная среды {name}'
-            logger.critical(message)
-            not_all_tokens = True
-        else:
-            not_all_tokens = False
+            not_all_tokens.append(name)
     if not_all_tokens:
-        raise NotTokenError('Отсутствуют переменные среды')
+        message = f'Отсутствуют переменные среды: {not_all_tokens}'
+        logger.critical(message)
+        raise NotTokenError(message)
 
 
 def send_message(bot, message):
     """Отправка сообщений в телеграм."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-    except Exception:
-        logger.error('Ошибка при отправке сообщения')
+    except Exception as err:
+        logger.error(f'Ошибка при отправке сообщения {err}')
         return False
     else:
         logger.debug(
@@ -90,20 +89,30 @@ def send_message(bot, message):
 def get_api_answer(timestamp):
     """Проверка доступности эндпойнта."""
     payload = {'from_date': timestamp}
+    params = {
+        'ENDPOINT': ENDPOINT,
+        'headers': HEADERS,
+        'params': payload
+    }
+    logger.debug('Начат запрос к API')
     try:
         homework_statuses = requests.get(
-            ENDPOINT,
-            headers=HEADERS,
-            params=payload
+            params['ENDPOINT'],
+            headers=params['headers'],
+            params=params['params']
         )
-        if homework_statuses.status_code != HTTPStatus.OK:
-            message = (f'Эндпоинт недоступен.'
-                       f'Статус ответа {homework_statuses.status_code}.')
-            logger.error(message)
-            raise requests.exceptions.HTTPError(message)
-    except requests.RequestException as err:
-        logger.error(err)
-        raise IncorrectResponseError(err) from err
+    except Exception:
+        message = (f'Ошибка подключения.'
+                   f'ENDPOINT - {params['ENDPOINT']}.'
+                   f'headers - {params['headers']}.'
+                   f'payload - {params['params']}.')
+        raise ConnectionError(message)
+    if homework_statuses.status_code != HTTPStatus.OK:
+        message = (f'Эндпоинт недоступен.'
+                   f'Статус ответа {homework_statuses.status_code}.'
+                   f'Причина ответа {homework_statuses.reason}.'
+                   f'Текст ответа {homework_statuses.text}.')
+        raise IncorrectResponseCodeError(message)
     return homework_statuses.json()
 
 
@@ -111,15 +120,12 @@ def check_response(response):
     """Проверка наличия ключей в respons'е."""
     if not isinstance(response, dict):
         raise TypeError('Неверный формат данных, ожидаем словарь')
-    if response.get('homeworks') is None:
+    if not response.get('homeworks'):
         raise KeyError('Нет ключа homeworks!')
     homeworks = response.get('homeworks')
     if not isinstance(homeworks, list):
         raise TypeError('Неверный формат homeworks, ожидаем список')
-    if len(homeworks) == 0:
-        message = 'Нет новых данных по домашней работе'
-        logger.debug(message)
-    return homeworks[0]
+    return homeworks
 
 
 def parse_status(homework):
@@ -130,14 +136,14 @@ def parse_status(homework):
         message = 'Отсутствует ключ - "homework_name"'
         logger.error(message)
         raise KeyError(message)
-    elif status is None:
+    elif not status:
         message = 'Отсутствует ключ - "status"'
         logger.error(message)
         raise KeyError(message)
     elif status not in HOMEWORK_VERDICTS:
         message = 'Неопознанный ключ. Ключа "status" нет в "HOMEWORK_VERDICTS"'
         logger.error(message)
-        raise KeyError(message)
+        raise ValueError(message)
     verdict = HOMEWORK_VERDICTS.get(status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -146,21 +152,22 @@ def main():
     """Основная логика работы бота."""
     check_tokens()
     bot = TeleBot(token=TELEGRAM_TOKEN)
-    timestamp = int(time.time())
+    timestamp = 0
+    prev_report = None
     while True:
         try:
             response = get_api_answer(timestamp)
-            if response:
-                homework = check_response(response)
-                message = parse_status(homework)
-                if not send_message(bot, message):
-                    raise SendingMessageError('Ошибка при отправке сообщения')
-                else:
-                    timestamp = int(time.time())
+            homework = check_response(response)[0]
+            message = parse_status(homework)
+            if prev_report != message:
+                if send_message(bot, message):
+                    prev_report = message
+                    timestamp = response.get('current_date')
             else:
                 logger.debug('Новых статусов нет.')
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
+            logger.error(message)
         finally:
             time.sleep(RETRY_PERIOD)
 
