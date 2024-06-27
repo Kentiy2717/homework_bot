@@ -94,14 +94,16 @@ def get_api_answer(timestamp):
         'headers': HEADERS,
         'params': payload
     }
-    params_message = ('ENDPOINT - {url}.'
-                      'headers - {headers}.'
-                      'payload - {params}.').format(**params)
-    logger.debug(f'Начат запрос к API. {params_message}')
+    logger.debug('Начат запрос к API на эндпоинт {url}'
+                 ' с параметрами {headers}'
+                 ' и временем {params}'.format(**params))
     try:
         homework_statuses = requests.get(**params)
-    except Exception:
-        message = ('Ошибка подключения. {params_message}')
+    except Exception as error:
+        message = ('Ошибка подключения {error} '
+                   'к эндпоинту {ENDPOINT}.'
+                   'с параметрами {headers}.'
+                   'и временем {params}.').format(error=error, **params)
         raise ConnectionError(message)
     if homework_statuses.status_code != HTTPStatus.OK:
         message = (f'Эндпоинт недоступен.'
@@ -129,14 +131,12 @@ def parse_status(homework):
     homework_name = homework.get('homework_name')
     status = homework.get('status')
     if not homework_name:
-        message = 'Отсутствует ключ - "homework_name"'
-        raise KeyError(message)
+        raise KeyError('Отсутствует ключ - "homework_name"')
     elif not status:
-        message = 'Отсутствует ключ - "status"'
-        raise KeyError(message)
+        raise KeyError('Отсутствует ключ - "status"')
     elif status not in HOMEWORK_VERDICTS:
-        message = 'Неопознанный ключ. Ключа "status" нет в "HOMEWORK_VERDICTS"'
-        raise ValueError(message)
+        raise ValueError('Неопознанный ключ. '
+                         'Ключа "status" нет в "HOMEWORK_VERDICTS"')
     verdict = HOMEWORK_VERDICTS.get(status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -157,7 +157,7 @@ def main():
             message = parse_status(homework)
             if last_message != message and send_message(bot, message):
                 last_message = message
-                timestamp = response.get('current_date', 0)
+                timestamp = response.get('current_date', timestamp)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logger.error(message)
