@@ -90,22 +90,18 @@ def get_api_answer(timestamp):
     """Проверка доступности эндпойнта."""
     payload = {'from_date': timestamp}
     params = {
-        'ENDPOINT': ENDPOINT,
+        'url': ENDPOINT,
         'headers': HEADERS,
         'params': payload
     }
-    logger.debug('Начат запрос к API')
+    params_message = ('ENDPOINT - {url}.'
+                      'headers - {headers}.'
+                      'payload - {params}.').format(**params)
+    logger.debug(f'Начат запрос к API. {params_message}')
     try:
-        homework_statuses = requests.get(
-            params['ENDPOINT'],
-            headers=params['headers'],
-            params=params['params']
-        )
+        homework_statuses = requests.get(**params)
     except Exception:
-        message = ('Ошибка подключения. '
-                   'ENDPOINT - {ENDPOINT}.'
-                   'headers - {headers}.'
-                   'payload - {params}.').format(**params)
+        message = ('Ошибка подключения. {params_message}')
         raise ConnectionError(message)
     if homework_statuses.status_code != HTTPStatus.OK:
         message = (f'Эндпоинт недоступен.'
@@ -134,15 +130,12 @@ def parse_status(homework):
     status = homework.get('status')
     if not homework_name:
         message = 'Отсутствует ключ - "homework_name"'
-        logger.error(message)
         raise KeyError(message)
     elif not status:
         message = 'Отсутствует ключ - "status"'
-        logger.error(message)
         raise KeyError(message)
     elif status not in HOMEWORK_VERDICTS:
         message = 'Неопознанный ключ. Ключа "status" нет в "HOMEWORK_VERDICTS"'
-        logger.error(message)
         raise ValueError(message)
     verdict = HOMEWORK_VERDICTS.get(status)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
@@ -153,21 +146,23 @@ def main():
     check_tokens()
     bot = TeleBot(token=TELEGRAM_TOKEN)
     timestamp = 0
-    prev_report = None
+    last_message = ''
     while True:
         try:
             response = get_api_answer(timestamp)
+            if not response:
+                logger.debug('Новых статусов нет.')
+                continue
             homework = check_response(response)[0]
             message = parse_status(homework)
-            if prev_report != message:
-                if send_message(bot, message):
-                    prev_report = message
-                    timestamp = response.get('current_date')
-            else:
-                logger.debug('Новых статусов нет.')
+            if last_message != message and send_message(bot, message):
+                last_message = message
+                timestamp = response.get('current_date', 0)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logger.error(message)
+            if message != last_message and send_message(bot, message):
+                last_message = message
         finally:
             time.sleep(RETRY_PERIOD)
 
